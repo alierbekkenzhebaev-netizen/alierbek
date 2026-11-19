@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Round Robin CPU Scheduler</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #0f172a;
+            margin: 0;
+            padding: 40px 20px;
+            min-height: 100vh;
+            background-image: linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.45)), url("static/bg.jpg");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+
+        .container { max-width: 850px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h1 { font-size: 28px; margin: 0 0 6px 0; color: #ffffff; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4); }
+        .header p { margin: 0; color: #e2e8f0; font-size: 15px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+        .card { background: rgba(255, 255, 255, 0.95); border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15); margin-bottom: 24px; }
+        .top-controls { display: flex; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .top-controls label { font-weight: 600; font-size: 14px; }
+        input[type="number"] { font-family: 'JetBrains Mono', monospace; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; width: 100px; font-size: 14px; background: #f8fafc; }
+        input[type="number"]:focus { outline: none; border-color: #2563eb; background: #fff; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th { text-align: left; font-size: 12px; text-transform: uppercase; color: #64748b; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+        th:last-child, td:last-child { text-align: right; }
+        td { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+        .proc-badge { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 13px; background: #eff6ff; color: #2563eb; padding: 4px 10px; border-radius: 6px; }
+        .actions { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .btn { font-family: 'Inter', sans-serif; padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-secondary { background: #f1f5f9; color: #0f172a; }
+        .btn-secondary:hover { background: #e2e8f0; }
+        .btn-danger { background: transparent; color: #64748b; padding: 6px 10px; }
+        .btn-danger:hover { background: #fef2f2; color: #ef4444; }
+        .error-alert { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 14px; border-radius: 10px; font-size: 14px; margin-top: 20px; display: none; }
+        .results-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+        .results-header h2 { font-size: 18px; margin: 0; }
+        .metric-card { background: #ecfdf5; border: 1px solid #a7f3d0; color: #059669; padding: 10px 18px; border-radius: 10px; display: flex; align-items: baseline; gap: 8px; }
+        .metric-card span { font-size: 13px; font-weight: 600; }
+        .metric-card strong { font-family: 'JetBrains Mono', monospace; font-size: 20px; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .gantt-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+        .gantt-section h3 { font-size: 14px; color: #64748b; text-transform: uppercase; margin: 0 0 16px 0; }
+        .gantt-wrapper { overflow-x: auto; padding-bottom: 8px; }
+        .gantt-chart { display: flex; min-width: 100%; gap: 3px; }
+        .gantt-block { display: flex; flex-direction: column; min-width: 48px; }
+        .gantt-bar { height: 46px; display: flex; align-items: center; justify-content: center; color: #fff; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 13px; border-radius: 6px; }
+        .gantt-ticks { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #64748b; margin-top: 6px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Round Robin Scheduler</h1>
+            <p>Симулятор планирования процессов и расчет среднего времени ожидания</p>
+        </div>
+
+        <div class="card">
+            <form id="scheduler-form" onsubmit="handleCalculate(event)">
+                <div class="top-controls">
+                    <label for="quantum">Time Quantum (квант времени):</label>
+                    <input type="number" id="quantum" name="quantum" value="3" min="1" required>
+                </div>
+
+                <table id="input-table">
+                    <thead>
+                        <tr>
+                            <th>Процесс</th>
+                            <th>Burst Time</th>
+                            <th>Arrival Time</th>
+                            <th>Удалить</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="proc-badge proc-name">P1</span></td>
+                            <td><input type="number" class="burst-input" value="5" min="1" required></td>
+                            <td><input type="number" class="arrival-input" value="0" min="0" required></td>
+                            <td><button type="button" class="btn btn-danger" onclick="removeRow(this)">✕</button></td>
+                        </tr>
+                        <tr>
+                            <td><span class="proc-badge proc-name">P2</span></td>
+                            <td><input type="number" class="burst-input" value="4" min="1" required></td>
+                            <td><input type="number" class="arrival-input" value="1" min="0" required></td>
+                            <td><button type="button" class="btn btn-danger" onclick="removeRow(this)">✕</button></td>
+                        </tr>
+                        <tr>
+                            <td><span class="proc-badge proc-name">P3</span></td>
+                            <td><input type="number" class="burst-input" value="2" min="1" required></td>
+                            <td><input type="number" class="arrival-input" value="2" min="0" required></td>
+                            <td><button type="button" class="btn btn-danger" onclick="removeRow(this)">✕</button></td>
+                        </tr>
+                        <tr>
+                            <td><span class="proc-badge proc-name">P4</span></td>
+                            <td><input type="number" class="burst-input" value="1" min="1" required></td>
+                            <td><input type="number" class="arrival-input" value="4" min="0" required></td>
+                            <td><button type="button" class="btn btn-danger" onclick="removeRow(this)">✕</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="actions">
+                    <button type="button" class="btn btn-secondary" onclick="addRow()">+ Добавить процесс</button>
+                    <button type="submit" class="btn btn-primary">Рассчитать график</button>
+                </div>
+            </form>
+
+            <div id="error-box" class="error-alert"></div>
+        </div>
+
+        <div id="results-card" class="card" style="display: none;">
+            <div class="results-header">
+                <h2>Результаты симуляции</h2>
+                <div class="metric-card">
+                    <span>Average Waiting Time:</span>
+                    <strong id="avg-waiting">0.00</strong>
+                </div>
+            </div>
+
+            <table id="results-table">
+                <thead>
+                    <tr>
+                        <th>Процесс</th>
+                        <th>Burst Time</th>
+                        <th>Arrival Time</th>
+                        <th>Completion Time</th>
+                        <th>Waiting Time</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+
+            <div class="gantt-section">
+                <h3>Диаграмма Ганта (Gantt Chart)</h3>
+                <div class="gantt-wrapper">
+                    <div id="gantt-chart" class="gantt-chart"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateProcessNames() {
+            const rows = document.querySelectorAll("#input-table tbody tr");
+            rows.forEach((row, index) => {
+                row.querySelector(".proc-name").textContent = "P" + (index + 1);
+            });
+        }
+
+        function addRow() {
+            const tbody = document.querySelector("#input-table tbody");
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td><span class="proc-badge proc-name"></span></td>
+                <td><input type="number" class="burst-input" value="4" min="1" required></td>
+                <td><input type="number" class="arrival-input" value="0" min="0" required></td>
+                <td><button type="button" class="btn btn-danger" onclick="removeRow(this)">✕</button></td>
+            `;
+            tbody.appendChild(row);
+            updateProcessNames();
+        }
+
+        function removeRow(btn) {
+            const tbody = document.querySelector("#input-table tbody");
+            if (tbody.rows.length > 1) {
+                btn.closest("tr").remove();
+                updateProcessNames();
+            }
+        }
+
+        function roundRobin(burstTime, arrivalTime, quantum) {
+            const n = burstTime.length;
+            const remaining = [...burstTime];
+            const completionTime = new Array(n).fill(0);
+            const waitingTime = new Array(n).fill(0);
+            const processes = Array.from({ length: n }, (_, i) => i).sort(
+                (a, b) => arrivalTime[a] - arrivalTime[b]
+            );
+            const queue = [];
+            const gantt = [];
+            let currentTime = 0;
+            let completed = 0;
+            let nextProcess = 0;
+
+            const colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
+
+            while (completed < n) {
+                while (nextProcess < n && arrivalTime[processes[nextProcess]] <= currentTime) {
+                    queue.push(processes[nextProcess]);
+                    nextProcess++;
+                }
+
+                if (queue.length === 0) {
+                    const idleEnd = arrivalTime[processes[nextProcess]];
+                    gantt.push({
+                        name: "Idle",
+                        start: currentTime,
+                        end: idleEnd,
+                        duration: idleEnd - currentTime,
+                        color: "#94a3b8"
+                    });
+                    currentTime = idleEnd;
+                    continue;
+                }
+
+                const i = queue.shift();
+                const startTime = currentTime;
+                const executionTime = Math.min(quantum, remaining[i]);
+                currentTime += executionTime;
+                remaining[i] -= executionTime;
+
+                gantt.push({
+                    name: `P${i + 1}`,
+                    start: startTime,
+                    end: currentTime,
+                    duration: executionTime,
+                    color: colors[i % colors.length]
+                });
+
+                while (nextProcess < n && arrivalTime[processes[nextProcess]] <= currentTime) {
+                    queue.push(processes[nextProcess]);
+                    nextProcess++;
+                }
+
+                if (remaining[i] === 0) {
+                    completionTime[i] = currentTime;
+                    completed++;
+                } else {
+                    queue.push(i);
+                }
+            }
+
+            const results = [];
+            let totalWaiting = 0;
+            for (let i = 0; i < n; i++) {
+                waitingTime[i] = completionTime[i] - arrivalTime[i] - burstTime[i];
+                totalWaiting += waitingTime[i];
+                results.push({
+                    name: `P${i + 1}`,
+                    burst: burstTime[i],
+                    arrival: arrivalTime[i],
+                    completion: completionTime[i],
+                    waiting: waitingTime[i]
+                });
+            }
+
+            const average = totalWaiting / n;
+            return { results, average, gantt };
+        }
+
+        function renderResults(results, average, gantt) {
+            document.getElementById("avg-waiting").textContent = average.toFixed(2);
+
+            const resultsBody = document.querySelector("#results-table tbody");
+            resultsBody.innerHTML = results.map(row => `
+                <tr>
+                    <td><span class="proc-badge">${row.name}</span></td>
+                    <td class="mono">${row.burst}</td>
+                    <td class="mono">${row.arrival}</td>
+                    <td class="mono">${row.completion}</td>
+                    <td class="mono"><strong>${row.waiting}</strong></td>
+                </tr>
+            `).join("");
+
+            const ganttContainer = document.getElementById("gantt-chart");
+            ganttContainer.innerHTML = gantt.map((item, idx) => `
+                <div class="gantt-block" style="flex-grow: ${item.duration};">
+                    <div class="gantt-bar" style="background-color: ${item.color};" title="${item.name}: ${item.start} → ${item.end}">
+                        ${item.name}
+                    </div>
+                    <div class="gantt-ticks">
+                        <span>${idx === 0 ? item.start : ""}</span>
+                        <span>${item.end}</span>
+                    </div>
+                </div>
+            `).join("");
+
+            document.getElementById("results-card").style.display = "block";
+        }
+
+        function handleCalculate(event) {
+            if (event) event.preventDefault();
+
+            const errorBox = document.getElementById("error-box");
+            const resultsCard = document.getElementById("results-card");
+            errorBox.style.display = "none";
+
+            const quantumRaw = document.getElementById("quantum").value.trim();
+            const burstInputs = Array.from(document.querySelectorAll(".burst-input"));
+            const arrivalInputs = Array.from(document.querySelectorAll(".arrival-input"));
+
+            const quantum = Number(quantumRaw);
+            const burstList = burstInputs.map(el => Number(el.value.trim()));
+            const arrivalList = arrivalInputs.map(el => Number(el.value.trim()));
+
+            const isAllIntegers =
+                Number.isInteger(quantum) &&
+                burstList.every(b => Number.isInteger(b)) &&
+                arrivalList.every(a => Number.isInteger(a));
+
+            if (!isAllIntegers) {
+                errorBox.textContent = "Invalid input! Введите только целые числа.";
+                errorBox.style.display = "block";
+                resultsCard.style.display = "none";
+                return;
+            }
+
+            if (
+                burstList.length === 0 ||
+                quantum <= 0 ||
+                burstList.some(b => b <= 0) ||
+                arrivalList.some(a => a < 0)
+            ) {
+                errorBox.textContent = "Invalid input! Проверьте, что Quantum > 0, Burst > 0, а Arrival >= 0.";
+                errorBox.style.display = "block";
+                resultsCard.style.display = "none";
+                return;
+            }
+
+            const { results, average, gantt } = roundRobin(burstList, arrivalList, quantum);
+            renderResults(results, average, gantt);
+        }
+
+        window.addEventListener("DOMContentLoaded", () => handleCalculate());
+    </script>
+</body>
+</html>
